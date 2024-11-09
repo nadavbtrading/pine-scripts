@@ -1,0 +1,49 @@
+//@version=5
+strategy("Daily One Trade Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+
+// Calculate SMAs on the current timeframe
+sma20 = ta.sma(close, 20)
+sma200 = ta.sma(close, 200)
+
+// Retrieve the 20-period SMA and 14-period ATR from the daily timeframe
+sma20_daily = request.security(syminfo.tickerid, "D", ta.sma(close, 20))
+atr14_daily = request.security(syminfo.tickerid, "D", ta.atr(14))
+
+// Define entry condition
+bullish_candle = close > open
+entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and bullish_candle
+
+// Initialize variables for stop loss, take profit, and trade tracking
+var float stop_loss = na
+var float take_profit = na
+var int last_trade_day = na
+
+// Check if a new day has started
+new_day = (dayofweek != dayofweek[1])
+
+if (new_day)
+    last_trade_day := na  // Reset last trade day at the start of a new day
+
+if (entry_condition and na(last_trade_day))
+    // Enter a long position
+    strategy.entry("Long", strategy.long)
+    // Set stop loss at the low of the entry candle
+    stop_loss := low
+    // Set take profit at 60% of the daily ATR above the entry price
+    take_profit := close + 0.6 * atr14_daily
+    // Record the day of the trade
+    last_trade_day := dayofweek
+
+// Exit conditions
+if (strategy.position_size > 0)
+    // Exit at stop loss
+    strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
+    // Exit at take profit
+    strategy.exit("Take Profit", from_entry="Long", limit=take_profit)
+    // Time-based exit at the end of the day
+    if (hour == 23 and minute == 59)
+        strategy.close("Long")
+
+// Plot stop loss and take profit levels when a position is active
+plot(strategy.position_size > 0 ? stop_loss : na, title="Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size > 0 ? take_profit : na, title="Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
