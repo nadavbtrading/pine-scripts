@@ -17,15 +17,45 @@ previous_day_close = request.security(syminfo.tickerid, "D", close[1])
 
 // Define entry condition with the requirement that price is above the last daily close
 bullish_candle = close > open
-entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and close > previous_day_close and bullish_candle
+// Condition to limit entry to only the first hour of the market (9:30 to 10:30 AM)
+first_hour = (hour == 9 and minute >= 30) or (hour == 10 and minute < 30)
+
+// Calculate body length and upper wick length
+body_length = math.abs(close - open)
+upper_wick = high - math.max(close, open)
+upper_wick_condition = upper_wick <= (0.25 * body_length)  // Top wick should be no more than 25% of the body
+
+// Initialize variables for tracking consecutive red candles and the flag
+var int consecutive_reds = 0
+var bool red_candle_condition_met = false
+
+// Check if a new day has started
+new_day = (dayofweek != dayofweek[1])
+
+if (new_day)
+    consecutive_reds := 0  // Reset counter at the start of a new day
+    red_candle_condition_met := false  // Reset flag at the start of a new day
+
+// Update consecutive red candles counter
+if (close < open)
+    consecutive_reds += 1
+else
+    consecutive_reds := 0
+
+// Set the flag if more than two consecutive red candles are detected
+if (consecutive_reds > 2)
+    red_candle_condition_met := true
+
+// New condition: current price should be above the maximum of the previous candle's close or open
+above_prev_max = close > math.max(close[1], open[1])
+
+// Entry condition: ensure the red candle condition has not been met and price is above the maximum of previous close or open
+entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and close > previous_day_close and bullish_candle and first_hour and upper_wick_condition and not red_candle_condition_met and above_prev_max
 
 // Initialize variables for stop loss, take profit, and trade tracking
 var float stop_loss = na
 var float take_profit = na
 var int last_trade_day = na
-
-// Check if a new day has started
-new_day = (dayofweek != dayofweek[1])
 
 if (new_day)
     last_trade_day := na  // Reset last trade day at the start of a new day
@@ -46,7 +76,6 @@ if (entry_condition and na(last_trade_day))
 
 // Exit conditions
 if (strategy.position_size > 0)
-    cond = na(last_trade_day)
     // Exit at stop loss
     if (close <= stop_loss)
         strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
