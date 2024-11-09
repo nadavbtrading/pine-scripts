@@ -1,5 +1,8 @@
 //@version=5
-strategy("Daily One Trade Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
+strategy("Daily One Trade Strategy", overlay=true, default_qty_type=strategy.fixed)
+
+// Risk amount in dollars
+risk_per_trade = 30.0
 
 // Calculate SMAs on the current timeframe
 sma20 = ta.sma(close, 20)
@@ -9,9 +12,12 @@ sma200 = ta.sma(close, 200)
 sma20_daily = request.security(syminfo.tickerid, "D", ta.sma(close, 20))
 atr14_daily = request.security(syminfo.tickerid, "D", ta.atr(14))
 
-// Define entry condition
+// Retrieve the last available daily closing price (skipping non-trading days like weekends)
+previous_day_close = request.security(syminfo.tickerid, "D", close[1])
+
+// Define entry condition with the requirement that price is above the last daily close
 bullish_candle = close > open
-entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and bullish_candle
+entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and close > previous_day_close and bullish_candle
 
 // Initialize variables for stop loss, take profit, and trade tracking
 var float stop_loss = na
@@ -25,25 +31,37 @@ if (new_day)
     last_trade_day := na  // Reset last trade day at the start of a new day
 
 if (entry_condition and na(last_trade_day))
-    // Enter a long position
-    strategy.entry("Long", strategy.long)
     // Set stop loss at the low of the entry candle
     stop_loss := low
+    // Calculate position size based on risk per trade
+    price_difference = close - stop_loss
+    if (price_difference > 0)
+        position_size = risk_per_trade / price_difference
+        // Enter a long position with calculated position size
+        strategy.entry("Long", strategy.long, qty=position_size)
     // Set take profit at 60% of the daily ATR above the entry price
-    take_profit := close + 0.6 * atr14_daily
+    take_profit := close + 0.5 * atr14_daily
     // Record the day of the trade
     last_trade_day := dayofweek
 
 // Exit conditions
 if (strategy.position_size > 0)
+    cond = na(last_trade_day)
     // Exit at stop loss
-    strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
+    if (close <= stop_loss)
+        strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
     // Exit at take profit
-    strategy.exit("Take Profit", from_entry="Long", limit=take_profit)
+    else if (high >= take_profit)
+        strategy.exit("Take Profit", from_entry="Long", limit=take_profit)
     // Time-based exit at the end of the day
-    if (hour == 23 and minute == 59)
-        strategy.close("Long")
+    else if (hour >= 15 and minute >= 50)
+        strategy.close("Long", "End of the day")
 
-// Plot stop loss and take profit levels when a position is active
-plot(strategy.position_size > 0 ? stop_loss : na, title="Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
-plot(strategy.position_size > 0 ? take_profit : na, title="Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
+// Plot indicators
+plot(sma20, title="SMA 20", color=color.blue, linewidth=1)
+plot(sma200, title="SMA 200", color=color.orange, linewidth=1)
+plot(previous_day_close, title="Previous Day Close", color=color.purple, linewidth=1, style=plot.style_stepline)
+
+// Plot stop loss and take profit levels only when a position is active
+plot(series=strategy.position_size > 0 ? stop_loss : na, title="Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(series=strategy.position_size > 0 ? take_profit : na, title="Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
