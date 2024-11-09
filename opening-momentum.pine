@@ -65,7 +65,7 @@ price_movement = close - min_reference_price
 price_movement_condition = price_movement <= 0.5 * atr14_daily
 
 // Combine all entry conditions into a single line
-entry_condition = bullish_candle_condition and sma_trend_condition and above_daily_sma_condition and above_previous_close_condition and first_hour_condition and upper_wick_condition and not red_candle_condition_met and above_prev_max_condition and price_movement_condition
+entry_condition = bullish_candle_condition and sma_trend_condition and above_daily_sma_condition and above_previous_close_condition and first_hour_condition and upper_wick_condition and not red_candle_condition_met and above_prev_max_condition 
 
 // Initialize variables for stop loss, take profit, and trade tracking
 var float stop_loss = na
@@ -91,15 +91,15 @@ if (entry_condition and na(last_trade_day))
 
 // Exit conditions
 if (strategy.position_size > 0)
+        // Time-based exit at the end of the day
+    if (hour >= 15 and minute >= 50)
+        strategy.close("Long", "End of the day")
     // Exit at stop loss
-    if (close <= stop_loss)
+    else if (math.min(low,high) <= stop_loss)
         strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
     // Exit at take profit
-    else if (high >= take_profit)
+    else if (math.max(low,high) >= take_profit)
         strategy.exit("Take Profit", from_entry="Long", limit=take_profit)
-    // Time-based exit at the end of the day
-    else if (hour >= 15 and minute >= 50)
-        strategy.close("Long", "End of the day")
 
 // Plot indicators
 plot(sma20, title="SMA 20", color=color.blue, linewidth=1)
