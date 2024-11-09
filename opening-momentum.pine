@@ -10,20 +10,22 @@ sma200 = ta.sma(close, 200)
 
 // Retrieve the 20-period SMA and 14-period ATR from the daily timeframe
 sma20_daily = request.security(syminfo.tickerid, "D", ta.sma(close, 20))
-atr14_daily = request.security(syminfo.tickerid, "D", ta.atr(14))
+atr14_daily = request.security(syminfo.tickerid, "D", ta.rma(high - low, 14))
 
 // Retrieve the last available daily closing price (skipping non-trading days like weekends)
-previous_day_close = request.security(syminfo.tickerid, "D", close[1])
+previous_day_close = request.security(syminfo.tickerid, "D", close)
 
-// Define entry condition with the requirement that price is above the last daily close
-bullish_candle = close > open
-// Condition to limit entry to only the first hour of the market (9:30 to 10:30 AM)
-first_hour = (hour == 9 and minute >= 30) or (hour == 10 and minute < 30)
+// Define each individual entry condition
+bullish_candle_condition = close > open
+sma_trend_condition = close > sma20 and sma20 > sma200
+above_daily_sma_condition = close > sma20_daily
+above_previous_close_condition = close > previous_day_close
+first_hour_condition = (hour == 9 and minute >= 30) or (hour == 10 and minute < 30)
+upper_wick_condition = (high - math.max(close, open)) <= (0.25 * math.abs(close - open))  // Top wick should be no more than 25% of the body
 
-// Calculate body length and upper wick length
-body_length = math.abs(close - open)
-upper_wick = high - math.max(close, open)
-upper_wick_condition = upper_wick <= (0.25 * body_length)  // Top wick should be no more than 25% of the body
+// Condition for two consecutive green candles
+green_candle = close > open
+two_green_candles_condition = green_candle and green_candle[1]
 
 // Initialize variables for tracking consecutive red candles and the flag
 var int consecutive_reds = 0
@@ -46,11 +48,24 @@ else
 if (consecutive_reds > 2)
     red_candle_condition_met := true
 
-// New condition: current price should be above the maximum of the previous candle's close or open
-above_prev_max = close > math.max(close[1], open[1])
+// Calculate the lowest low of the current day up to the current candle consistently
+bars_since_new_day = ta.barssince(new_day)
+current_day_low = ta.lowest(low, bars_since_new_day >= 0 ? bars_since_new_day + 1 : 1)
 
-// Entry condition: ensure the red candle condition has not been met and price is above the maximum of previous close or open
-entry_condition = close > sma20 and sma20 > sma200 and close > sma20_daily and close > previous_day_close and bullish_candle and first_hour and upper_wick_condition and not red_candle_condition_met and above_prev_max
+// Condition: current price should be above the maximum of the previous candle's close or open
+above_prev_max_condition = close > math.max(close[1], open[1])
+
+// Calculate the minimum between the current day's lowest low and the previous open/close
+min_reference_price = math.min(current_day_low, previous_day_close)
+
+// Calculate the price movement from the min_reference_price to the current close
+price_movement = close - min_reference_price
+
+// Condition to check if price movement is less than or equal to 0.5 of ATR
+price_movement_condition = price_movement <= 0.5 * atr14_daily
+
+// Combine all entry conditions into a single line
+entry_condition = bullish_candle_condition and sma_trend_condition and above_daily_sma_condition and above_previous_close_condition and first_hour_condition and upper_wick_condition and not red_candle_condition_met and above_prev_max_condition and price_movement_condition
 
 // Initialize variables for stop loss, take profit, and trade tracking
 var float stop_loss = na
@@ -69,8 +84,8 @@ if (entry_condition and na(last_trade_day))
         position_size = risk_per_trade / price_difference
         // Enter a long position with calculated position size
         strategy.entry("Long", strategy.long, qty=position_size)
-    // Set take profit at 60% of the daily ATR above the entry price
-    take_profit := close + 0.5 * atr14_daily
+    // Set take profit at the lowest low of the current day plus 70% of the daily ATR
+    take_profit := current_day_low + 0.7 * atr14_daily
     // Record the day of the trade
     last_trade_day := dayofweek
 
