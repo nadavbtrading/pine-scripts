@@ -1,0 +1,85 @@
+//@version=5
+strategy("Daily One Trade Strategy", overlay=true, default_qty_type=strategy.fixed, default_qty_value=1, currency="USD")
+
+// Risk amount in dollars
+risk_per_trade = 30.0
+
+// Calculate EMAs on the current timeframe
+ema9 = ta.ema(close, 9)
+ema200 = ta.ema(close, 200)
+
+// Calculate VWAP
+vwap = ta.vwap(close)
+
+// Calculate the 14-period ATR on the current timeframe
+atr14 = ta.atr(14)
+
+// Retrieve the last available daily closing price (skipping non-trading days like weekends)
+previous_day_close = request.security(syminfo.tickerid, "D", close)
+
+// Define each individual entry condition
+bullish_candle_condition = close > open
+ema_trend_condition = ema9 > ema200 and ema200 > vwap
+above_previous_close_condition = close > previous_day_close
+first_hour_condition = (hour == 9 and minute >= 30) or (hour == 10 and minute < 30)
+upper_wick_condition = (high - math.max(close, open)) <= (0.25 * math.abs(close - open))  // Top wick should be no more than 25% of the body
+
+// Detect the start of a new day
+new_day = ta.change(time("D"))
+
+// Initialize a variable to track if the crossover has occurred since the start of the day
+var bool crossover_occurred = false
+
+if (new_day)
+    crossover_occurred := false  // Reset at the start of a new day
+
+// Update the crossover occurrence
+if (ema9[1] < vwap[1] and ema9 > vwap)
+    crossover_occurred := true
+
+// Entry condition: Check if the crossover has occurred since the start of the day
+entry_condition = crossover_occurred and ema_trend_condition and bullish_candle_condition and above_previous_close_condition and first_hour_condition and upper_wick_condition
+
+// Initialize variables for stop loss, take profit, and trade tracking
+var float stop_loss = na
+var float take_profit = na
+var int last_trade_day = na
+
+if (new_day)
+    last_trade_day := na  // Reset last trade day at the start of a new day
+
+if (entry_condition and na(last_trade_day))
+    // Set stop loss at the low of the entry candle minus a buffer (e.g., 0.1 * ATR)
+    stop_loss := low - 0.1 * atr14
+    // Calculate position size based on risk per trade
+    price_difference = close - stop_loss
+    if (price_difference > 0)
+        position_size = risk_per_trade / price_difference
+        // Enter a long position with calculated position size
+        strategy.entry("Long", strategy.long, qty=position_size)
+    // Set take profit at the entry price plus 10% of the 14-period ATR
+    take_profit := close + 0.1 * atr14
+    // Record the day of the trade
+    last_trade_day := dayofweek
+
+// Exit conditions
+if (strategy.position_size > 0)
+    // Time-based exit at the end of the day
+    if (hour >= 15 and minute >= 50)
+        strategy.close("Long", "End of the day")
+    // Exit at stop loss
+    else if (low <= stop_loss)
+        strategy.exit("Stop Loss", from_entry="Long", stop=stop_loss)
+    // Exit at take profit
+    else if (high >= take_profit)
+        strategy.exit("Take Profit", from_entry="Long", limit=take_profit)
+
+// Plot indicators
+plot(ema9, title="EMA 9", color=color.green, linewidth=1)
+plot(ema200, title="EMA 200", color=color.red, linewidth=1)
+plot(vwap, title="VWAP", color=color.blue, linewidth=1)
+plot(previous_day_close, title="Previous Day Close", color=color.purple, linewidth=1, style=plot.style_stepline)
+
+// Plot stop loss and take profit levels only when a position is active
+plot(series=strategy.position_size > 0 ? stop_loss : na, title="Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(series=strategy.position_size > 0 ? take_profit : na, title="Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
